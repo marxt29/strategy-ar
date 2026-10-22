@@ -1,0 +1,2 @@
+# strategy-ar
+IT strategy
