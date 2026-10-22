@@ -45,6 +45,14 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--
 .dock button[aria-pressed="false"]{color:var(--muted)}
 .dock button:focus-visible,#sheetClose:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #loader{position:fixed;inset:0;z-index:5;display:grid;place-items:center;background:var(--bg);font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:.08em}
+#arGate{position:fixed;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  background:radial-gradient(circle at 50% 45%,rgba(10,52,112,.92),rgba(4,11,24,.97));text-align:center;
+  padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}
+#arGate h1{margin:0;font-size:26px;font-weight:800;letter-spacing:.08em;text-wrap:balance}
+#arGate p{margin:0;font-size:14px;color:var(--muted);max-width:30ch;line-height:1.5}
+#arGate .go{font:800 17px/1 var(--display);letter-spacing:.06em;color:#03203d;background:var(--accent);border:0;border-radius:999px;
+  padding:20px 36px;cursor:pointer;box-shadow:0 0 40px rgba(95,212,255,.45)}
+#arGate .skip{font:600 13px/1 var(--display);color:var(--muted);background:none;border:0;padding:10px;cursor:pointer;text-decoration:underline}
 #reticleHelp{font-family:var(--mono)}
 </style>
 
@@ -72,6 +80,12 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--
       <button id="btnExit" hidden>Exit AR</button>
     </nav>
   </div>
+</div>
+<div id="arGate" hidden>
+  <h1>TECHNOLOGY STRATEGY</h1>
+  <p>See the strategy building in augmented reality around you.</p>
+  <button id="gateGo" class="go">Start AR</button>
+  <button id="gateSkip" class="skip">View in 3D instead</button>
 </div>
 <div id="loader">01010100 · building the strategy</div>
 
@@ -553,6 +567,11 @@ renderer.setAnimationLoop((time,frame)=>{
 });
 
 $('loader').remove();
+if(location.hash.replace('#','').toLowerCase()==='ar'){
+  const gate=$('arGate'); gate.hidden=false;
+  $('gateGo').onclick=()=>{ gate.hidden=true; $('btnAR').click(); };
+  $('gateSkip').onclick=()=>{ gate.hidden=true; };
+}
 })().catch(err=>{
   const l=document.getElementById('loader');
   if(l) l.textContent='Could not start 3D: '+(err&&err.message||err);
