@@ -89,10 +89,38 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--
 </div>
 <div id="loader">01010100 · building the strategy</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
-(async function(){
+function fatal(msg){
+  var l=document.getElementById('loader');
+  if(!l){ l=document.createElement('div'); l.id='loader'; document.body.appendChild(l); }
+  l.style.cssText+=';padding:24px;text-align:center;line-height:1.6;white-space:pre-line';
+  l.textContent=msg;
+}
+window.addEventListener('error',function(e){ if(document.getElementById('loader')) fatal('Something went wrong while starting:\n'+(e.message||e)); });
+function loadScript(urls){
+  return new Promise(function(res,rej){
+    (function next(i){
+      if(i>=urls.length) return rej(new Error('blocked'));
+      var sc=document.createElement('script'); sc.src=urls[i]; sc.async=false;
+      sc.onload=function(){res();}; sc.onerror=function(){ sc.remove(); next(i+1); };
+      document.head.appendChild(sc);
+    })(0);
+  });
+}
+var LIBS_READY=loadScript([
+  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+  'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
+  'https://unpkg.com/three@0.128.0/build/three.min.js'
+]).then(function(){ return loadScript([
+  'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js',
+  'https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js'
+]); });
+</script>
+<script>
+LIBS_READY.then(main,function(){
+  fatal('The 3D engine could not be downloaded.\nIf you use a content blocker in Safari, turn it off for this site (tap aA in the address bar \u2192 Turn off Content Blockers), then reload.');
+});
+async function main(){
 "use strict";
 const $ = id => document.getElementById(id);
 const TAU = Math.PI*2;
@@ -121,7 +149,9 @@ try{
 
 /* ---------- renderer / scene ---------- */
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+let renderer;
+try{ renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true}); }
+catch(e){ fatal('This browser has 3D graphics (WebGL) turned off.\nOn iPhone this happens in Lockdown Mode: Settings \u2192 Privacy & Security \u2192 Lockdown Mode, or exclude this site from it in Safari.'); return; }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
@@ -386,6 +416,19 @@ function restoreOrbit(){
   setHint('Drag to walk around · pinch to zoom · tap a pillar');
 }
 
+let orientPromise=Promise.resolve(false);
+function cameraError(e){
+  const n=e&&e.name;
+  if(n==='NotAllowedError'||n==='SecurityError'){
+    if(window.top!==window.self) return notSupported(n);
+    return showSheet('Camera blocked','Allow camera access',
+      'Your browser refused the camera for this site. On iPhone Safari: tap <b>aA</b> in the address bar \u2192 <b>Website Settings</b> \u2192 <b>Camera: Allow</b>, then reload. '+
+      'Or Settings \u2192 Apps \u2192 Safari \u2192 Camera \u2192 Ask/Allow.',true);
+  }
+  if(n==='NotFoundError'||n==='OverconstrainedError') return showSheet('No camera found','Camera unavailable','This device has no usable rear camera. You can still explore the 3D view.');
+  if(n==='NotReadableError'||n==='AbortError') return showSheet('Camera busy','Close other camera apps','Another app is using the camera. Close it and tap View in AR again.');
+  notSupported(n||(e&&e.message));
+}
 function notSupported(reason){
   showSheet('AR not available here','Open the hosted page on your phone',
     'This preview runs inside a protected frame that blocks the camera and AR. '+
@@ -394,11 +437,15 @@ function notSupported(reason){
 }
 
 $('btnAR').onclick=async()=>{
+  // iOS only grants motion access when asked directly inside the tap, before any await
+  orientPromise=(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function')
+    ? DeviceOrientationEvent.requestPermission().then(r=>r==='granted').catch(()=>false)
+    : Promise.resolve(typeof DeviceOrientationEvent!=='undefined');
   let xrOK=false;
   try{ xrOK=!!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); }catch(e){}
   if(xrOK){ try{ await startXR(); return; }catch(e){ console.warn('WebXR failed',e); } }
   if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-    try{ await startCamera(); return; }catch(e){ notSupported(e && (e.name||e.message)); return; }
+    try{ await startCamera(); return; }catch(e){ cameraError(e); return; }
   }
   notSupported('No camera access in this browser');
 };
@@ -449,18 +496,16 @@ let stream=null, orient=null, alpha0=null, gotOrient=false, camYaw=0, camPitch=0
 const video=$('cam');
 function onOrient(e){ if(e.alpha==null) return; orient=e; gotOrient=true; if(alpha0==null) alpha0=e.alpha; }
 async function startCamera(){
-  let orientAllowed=true;
-  if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
-    try{ orientAllowed=(await DeviceOrientationEvent.requestPermission())==='granted'; }catch(e){ orientAllowed=false; }
-  }
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
   video.srcObject=stream; video.hidden=false; try{ await video.play(); }catch(e){}
+  const orientAllowed=await orientPromise;
   mode='camera'; alpha0=null; gotOrient=false; camYaw=0; camPitch=0;
   if(orientAllowed) window.addEventListener('deviceorientation',onOrient);
   scene.background=null; scene.fog=null; ground.visible=false; controls.enabled=false;
   camera.position.set(0,0,0); camera.quaternion.identity(); camera.fov=62; camera.updateProjectionMatrix();
   anchor.position.set(0,-1.6,-8); anchor.rotation.set(0,0,0); setScale(1);
   showButtons('camera'); $('sheet').hidden=true;
+  setTimeout(()=>{ if(mode==='camera' && !gotOrient) setHint(orientAllowed?'No motion data yet: drag to look around · pinch to resize':'Motion access is off, so drag to look around. To use motion: Settings \u2192 Apps \u2192 Safari \u2192 Motion & Orientation Access'); },2500);
   setHint(orientAllowed?'Turn your phone to look around · drag to spin · pinch to resize':'Drag to look around · pinch to resize');
 }
 function stopCamera(){
@@ -566,17 +611,13 @@ renderer.setAnimationLoop((time,frame)=>{
   renderer.render(scene,camera);
 });
 
-$('loader').remove();
+$('loader').remove(); window.__started=true;
 if(location.hash.replace('#','').toLowerCase()==='ar'){
   const gate=$('arGate'); gate.hidden=false;
   $('gateGo').onclick=()=>{ gate.hidden=true; $('btnAR').click(); };
   $('gateSkip').onclick=()=>{ gate.hidden=true; };
 }
-})().catch(err=>{
-  const l=document.getElementById('loader');
-  if(l) l.textContent='Could not start 3D: '+(err&&err.message||err);
-  console.error(err);
-});
+}
 </script>
 
 </body></html>
